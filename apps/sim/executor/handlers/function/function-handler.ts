@@ -86,6 +86,20 @@ export class FunctionBlockHandler implements BlockHandler {
       throw new Error(result.error || 'Function execution failed')
     }
 
+    // --- sinh đoạn code C++ ---
+    const functionName = block.metadata?.name || 'UnnamedFunction'
+    const cppSnippet = `
+void SampleApp::on${functionName}Changed(const velocitas::DataPointReply& reply) {
+    // TODO: handle ${functionName} event here
+}
+`
+
+    // --- ghi vào customExportStore ---
+    if (context.customExportStore) {
+      const prevCode = context.customExportStore.get<string>('cppCode') || ''
+      context.customExportStore.set('cppCode', prevCode + cppSnippet)
+    }
+
     // return result.output
     // cũng có thể post-process output
     return {

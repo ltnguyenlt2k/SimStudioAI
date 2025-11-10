@@ -73,6 +73,15 @@ export function ExportControls({ disabled = false }: ExportControlsProps) {
       } else {
         logger.info('No custom export data to export')
       }
+
+      // File 3: C++ code
+      const cppCode = customExportData.cppCode
+      if (cppCode && cppCode.trim().length > 0) {
+        const cppFilename = `${baseName}-generated.cpp`
+        downloadFile(cppCode, cppFilename, 'text/plain')
+        logger.info('Generated C++ code exported as .cpp')
+      }
+
     } catch (error) {
       logger.error('Failed to export workflow as JSON:', error)
     } finally {
