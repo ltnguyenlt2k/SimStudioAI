@@ -1,3 +1,4 @@
+import { templates } from '@sim/db/schema';
 import { DEFAULT_EXECUTION_TIMEOUT_MS } from '@/lib/execution/constants'
 import { DEFAULT_CODE_LANGUAGE } from '@/lib/execution/languages'
 import { createLogger } from '@/lib/logs/console/logger'
@@ -5,6 +6,8 @@ import { BlockType } from '@/executor/consts'
 import type { BlockHandler, ExecutionContext } from '@/executor/types'
 import type { SerializedBlock } from '@/serializer/types'
 import { executeTool } from '@/tools'
+// 👇 IMPORT TEMPLATE
+import { FUNCTION_CPP_TEMPLATE, renderTemplate } from '../templates/cpp_templates'
 
 const logger = createLogger('FunctionBlockHandler')
 
@@ -88,7 +91,6 @@ export class FunctionBlockHandler implements BlockHandler {
 
 
     // ================== C++ EXPORT LOGIC ==================
-
     try {
       const functionName = block.metadata?.name || 'UnnamedFunction'
 
@@ -96,46 +98,37 @@ export class FunctionBlockHandler implements BlockHandler {
       const connectionsFromThis =
         context.workflow?.connections.filter((c) => c.source === block.id) ?? []
 
-      // 2) Xây body cho function: luôn có TODO,
-      //    chỉ thêm <nextcode:...> nếu THỰC SỰ có block con.
-      const bodyLines: string[] = [
-        `// TODO: handle ${functionName} event here`,
-      ]
+      // 2) Build childrenBlock:
+      //    - nếu có block con: mỗi con 1 dòng <nextcode:childId>
+      //    - nếu không có: childrenBlock = '' (KHÔNG sinh <nextcode:...>)
+      let childrenBlock = ''
 
       if (connectionsFromThis.length > 0) {
-        // Mỗi block con: một placeholder
-        //   <nextcode:childId1>
-        //   <nextcode:childId2>
-        bodyLines.push(
-          ...connectionsFromThis.map((conn) => `<nextcode:${conn.target}>`)
-        )
+        const placeholders = connectionsFromThis
+          .map((conn) => `<nextcode:${conn.target}>`)
+          // indent 4 spaces để match với phần thân hàm
+          .join('\n    ')
+
+        // Thêm newline + indent cho đẹp
+        childrenBlock = '\n    ' + placeholders
       }
-      // Nếu không có block con thì KHÔNG push thêm gì → không có <nextcode:...>
 
-      const bodyJoined = bodyLines.join('\n    ')
-
-      // 3) Template cho chính block hiện tại
-      const cppSnippet = `
-void SampleApp::on${functionName}Changed(const velocitas::DataPointReply& reply) {
-    ${bodyJoined}
-}
-`.trimStart()
+      // 3) Render template sẵn
+      const cppSnippet = renderTemplate(FUNCTION_CPP_TEMPLATE, {
+        functionName,
+        childrenBlock,
+      })
 
       if (context.customExportStore) {
-        // Đọc toàn bộ code hiện có
         const prevCode = context.customExportStore.get<string>('cppCode') || ''
-
-        // Placeholder mà block trước có thể đã chừa cho block hiện tại
-        // Ví dụ: block A tạo <nextcode:BLOCK_B_ID>, khi đến B thì ta replace chỗ đó.
         const myPlaceholder = `<nextcode:${block.id}>`
-
         let newCode: string
 
         if (prevCode.includes(myPlaceholder)) {
-          // Có placeholder <nextcode:ID_block_hiện_tại> → chèn template vào đúng chỗ
+          // Có placeholder cho block hiện tại → chèn vào đúng vị trí
           newCode = prevCode.replace(myPlaceholder, cppSnippet)
         } else {
-          // Không có placeholder cho block hiện tại → append xuống cuối file
+          // Không có placeholder → append cuối file
           newCode = prevCode ? `${prevCode}\n\n${cppSnippet}` : cppSnippet
         }
 
@@ -146,8 +139,8 @@ void SampleApp::on${functionName}Changed(const velocitas::DataPointReply& reply)
     } catch (e) {
       logger.error('Failed to build/append C++ snippet for function block', e)
     }
-
     // ======================================================
+
 
 
     // return result.output
