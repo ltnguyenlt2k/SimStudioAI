@@ -7,10 +7,10 @@ import type { BlockHandler, ExecutionContext } from '@/executor/types'
 import type { SerializedBlock } from '@/serializer/types'
 // 👇 IMPORT TEMPLATE
 import {
-  CONDITION_IF_BRANCH_TEMPLATE,
-  CONDITION_ELSE_IF_BRANCH_TEMPLATE,
-  CONDITION_ELSE_BRANCH_TEMPLATE,
-  renderTemplate,
+  CONDITION_CPP_TEMPLATE,
+  CONDITION_ELSEIF_TEMPLATE,
+  CONDITION_ELSE_TEMPLATE,
+  replacePlaceholderWithIndentedSnippet,
 } from '../templates/cpp_templates'
 
 const logger = createLogger('ConditionBlockHandler')
@@ -261,78 +261,119 @@ export class ConditionBlockHandler implements BlockHandler {
         }
       }) ?? []
 
-    // --- CPP TEMPLATE EXPORT (UPDATED) ---
-    if (context.customExportStore) {
-      try {
-        if (context.customExportStore) {
-          const prevCode = context.customExportStore.get<string>('cppCode') || ''
-          const myPlaceholder = `<nextcode:${block.id}>`
 
-          // Build các nhánh if / else-if / else
-          const branches: string[] = []
+    // ================== BUILD C++ CONDITION SNIPPET ==================
+    // Map blockId -> block để tra nhanh
+    const blocksById = new Map(
+      (context.workflow?.blocks ?? []).map((b) => [b.id, b] as const)
+    )
 
-          for (let index = 0; index < conditions.length; index++) {
-            const cond = conditions[index]
-            const isElse = cond.title === 'else'
+    // Tách các condition: if / elseif / else
+    const nonElseConditions = conditions.filter((c) => c.title !== 'else')
+    const firstIf = nonElseConditions[0]
 
-            // Tìm các block con của riêng nhánh này
-            const connsForThisCondition =
-              outgoingConnections?.filter(
-                (c) => c.sourceHandle === `condition-${cond.id}`
-              ) ?? []
+    // Nếu không có "if" nào thì khỏi build snippet
+    let finalConditionSnippet = ''
+    if (firstIf) {
+      // --- 1) IF ---
+      const ifExpr = firstIf.value || '/* condition */'
 
-            let childrenBlock = ''
+      // các connection đi ra cho nhánh if
+      const ifConns =
+        outgoingConnections?.filter(
+          (c) => c.sourceHandle === `condition-${firstIf.id}`
+        ) ?? []
 
-            if (connsForThisCondition.length > 0) {
-              const placeholders = connsForThisCondition
-                .map((c) => `<nextcode:${c.target}>`)
-                .join('\n    ')
-              childrenBlock = '\n    ' + placeholders
-            }
+      // nếu có block con → tạo placeholder, nếu không thì để trống (KHÔNG gen <nextcode:...>)
+      const ifNextPlaceholders =
+        ifConns.length > 0
+          ? ifConns
+            .map((conn) => `<nextcode:${conn.target}>`)
+            .join('\n    ')
+          : ''
 
-            if (!isElse) {
-              // Nhánh if đầu tiên hay else-if?
-              const template =
-                index === 0
-                  ? CONDITION_IF_BRANCH_TEMPLATE
-                  : CONDITION_ELSE_IF_BRANCH_TEMPLATE
+      // --- 2) ELSE-IF(s) ---
+      let elseIfBlocksStr = ''
+      const elseIfConditions = nonElseConditions.slice(1)
 
-              branches.push(
-                renderTemplate(template, {
-                  expression: String(cond.value || 'true'),
-                  title: cond.title || '',
-                  childrenBlock,
-                })
-              )
-            } else {
-              // Nhánh else
-              branches.push(
-                renderTemplate(CONDITION_ELSE_BRANCH_TEMPLATE, {
-                  expression: '',       // không dùng
-                  title: cond.title || '',
-                  childrenBlock,
-                })
-              )
-            }
-          }
+      for (const cond of elseIfConditions) {
+        const expr = cond.value || '/* condition */'
+        const conns =
+          outgoingConnections?.filter(
+            (c) => c.sourceHandle === `condition-${cond.id}`
+          ) ?? []
 
-          const cppSnippet = branches.join('\n') // ghép các nhánh lại
+        const nextPlaceholders =
+          conns.length > 0
+            ? conns.map((conn) => `<nextcode:${conn.target}>`).join('\n    ')
+            : ''
 
-          let newCode: string
-          if (prevCode.includes(myPlaceholder)) {
-            newCode = prevCode.replace(myPlaceholder, cppSnippet)
-          } else {
-            newCode = prevCode ? `${prevCode}\n\n${cppSnippet}` : cppSnippet
-          }
+        const elseIfSnippet = CONDITION_ELSEIF_TEMPLATE
+          .replace('{{expr}}', expr)
+          .replace('{{next}}', nextPlaceholders)
 
-          context.customExportStore.set('cppCode', newCode)
-        }
-      } catch (e) {
-        logger.error('Failed to build/append C++ snippet for condition block', e)
+        elseIfBlocksStr += `\n${elseIfSnippet}`
       }
+
+      // --- 3) ELSE (nếu có) ---
+      const elseCondition = conditions.find((c) => c.title === 'else')
+      let elseBlockStr = ''
+
+      if (elseCondition) {
+        const elseConns =
+          outgoingConnections?.filter(
+            (c) => c.sourceHandle === `condition-${elseCondition.id}`
+          ) ?? []
+
+        const elseNextPlaceholders =
+          elseConns.length > 0
+            ? elseConns
+              .map((conn) => `<nextcode:${conn.target}>`)
+              .join('\n    ')
+            : ''
+
+        // nếu không có block con thì next rỗng -> KHÔNG gen <nextcode:...>
+        const elseSnippet = CONDITION_ELSE_TEMPLATE.replace(
+          '{{next}}',
+          elseNextPlaceholders
+        )
+
+        elseBlockStr = `\n${elseSnippet}`
+      }
+
+      // --- 4) Gộp template chính ---
+      finalConditionSnippet = CONDITION_CPP_TEMPLATE
+        .replace('{{ifExpr}}', ifExpr)
+        .replace('{{next_if}}', ifNextPlaceholders)
+        .replace('{{elseIfBlocks}}', elseIfBlocksStr)
+        .replace('{{elseBlock}}', elseBlockStr)
     }
 
+    try {
+      if (context.customExportStore) {
+        const prevCode = context.customExportStore.get<string>('cppCode') || ''
+        const myPlaceholder = `<nextcode:${block.id}>`
 
+        let newCode: string
+        if (prevCode.includes(myPlaceholder)) {
+          newCode = replacePlaceholderWithIndentedSnippet(
+            prevCode,
+            myPlaceholder,
+            finalConditionSnippet // chuỗi condition if/elseif/else đã build
+          )
+        } else {
+          newCode = prevCode
+            ? `${prevCode}\n\n${finalConditionSnippet.trim()}`
+            : finalConditionSnippet.trim()
+        }
+
+        context.customExportStore.set('cppCode', newCode)
+      }
+    } catch (e) {
+      logger.error('Failed to build/append C++ condition snippet', e)
+    }
+
+    // ================== END BUILD C++ CONDITION SNIPPET ==================
 
     // Return output, preserving source output structure if possible
     return {

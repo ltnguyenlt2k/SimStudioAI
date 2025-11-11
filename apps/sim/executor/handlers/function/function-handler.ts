@@ -7,7 +7,10 @@ import type { BlockHandler, ExecutionContext } from '@/executor/types'
 import type { SerializedBlock } from '@/serializer/types'
 import { executeTool } from '@/tools'
 // 👇 IMPORT TEMPLATE
-import { FUNCTION_CPP_TEMPLATE, renderTemplate } from '../templates/cpp_templates'
+import {
+  FUNCTION_CPP_TEMPLATE,
+  replacePlaceholderWithIndentedSnippet,
+} from '../templates/cpp_templates'
 
 const logger = createLogger('FunctionBlockHandler')
 
@@ -94,30 +97,26 @@ export class FunctionBlockHandler implements BlockHandler {
     try {
       const functionName = block.metadata?.name || 'UnnamedFunction'
 
-      // 1) Tìm tất cả block "kế tiếp" trong workflow (nối từ block hiện tại)
+      // 1) Tìm tất cả block con nối từ block hiện tại
       const connectionsFromThis =
         context.workflow?.connections.filter((c) => c.source === block.id) ?? []
 
-      // 2) Build childrenBlock:
-      //    - nếu có block con: mỗi con 1 dòng <nextcode:childId>
-      //    - nếu không có: childrenBlock = '' (KHÔNG sinh <nextcode:...>)
-      let childrenBlock = ''
+      let childrenPlaceholders = ''
 
       if (connectionsFromThis.length > 0) {
-        const placeholders = connectionsFromThis
+        // mỗi block con 1 placeholder
+        childrenPlaceholders = connectionsFromThis
           .map((conn) => `<nextcode:${conn.target}>`)
-          // indent 4 spaces để match với phần thân hàm
           .join('\n    ')
-
-        // Thêm newline + indent cho đẹp
-        childrenBlock = '\n    ' + placeholders
+      } else {
+        // không có block con → không chừa placeholder nextcode nữa
+        childrenPlaceholders = ''
       }
 
-      // 3) Render template sẵn
-      const cppSnippet = renderTemplate(FUNCTION_CPP_TEMPLATE, {
-        functionName,
-        childrenBlock,
-      })
+      // 2) render template
+      const cppSnippet = FUNCTION_CPP_TEMPLATE
+        .replace(/{{name}}/g, functionName)
+        .replace('{{next}}', childrenPlaceholders || '')
 
       if (context.customExportStore) {
         const prevCode = context.customExportStore.get<string>('cppCode') || ''
@@ -125,11 +124,15 @@ export class FunctionBlockHandler implements BlockHandler {
         let newCode: string
 
         if (prevCode.includes(myPlaceholder)) {
-          // Có placeholder cho block hiện tại → chèn vào đúng vị trí
-          newCode = prevCode.replace(myPlaceholder, cppSnippet)
+          // chèn vào đúng vị trí placeholder + căn indent đẹp
+          newCode = replacePlaceholderWithIndentedSnippet(
+            prevCode,
+            myPlaceholder,
+            cppSnippet
+          )
         } else {
-          // Không có placeholder → append cuối file
-          newCode = prevCode ? `${prevCode}\n\n${cppSnippet}` : cppSnippet
+          // không có placeholder cho block này → append cuối file
+          newCode = prevCode ? `${prevCode}\n\n${cppSnippet.trim()}` : cppSnippet.trim()
         }
 
         context.customExportStore.set('cppCode', newCode)
