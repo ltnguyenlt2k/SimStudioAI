@@ -86,19 +86,69 @@ export class FunctionBlockHandler implements BlockHandler {
       throw new Error(result.error || 'Function execution failed')
     }
 
-    // --- sinh đoạn code C++ ---
-    const functionName = block.metadata?.name || 'UnnamedFunction'
-    const cppSnippet = `
-void SampleApp::on${functionName}Changed(const velocitas::DataPointReply& reply) {
-    // TODO: handle ${functionName} event here
-}
-`
 
-    // --- ghi vào customExportStore ---
-    if (context.customExportStore) {
-      const prevCode = context.customExportStore.get<string>('cppCode') || ''
-      context.customExportStore.set('cppCode', prevCode + cppSnippet)
+    // ================== C++ EXPORT LOGIC ==================
+
+    try {
+      const functionName = block.metadata?.name || 'UnnamedFunction'
+
+      // 1) Tìm tất cả block "kế tiếp" trong workflow (nối từ block hiện tại)
+      const connectionsFromThis =
+        context.workflow?.connections.filter((c) => c.source === block.id) ?? []
+
+      // 2) Xây body cho function: luôn có TODO,
+      //    chỉ thêm <nextcode:...> nếu THỰC SỰ có block con.
+      const bodyLines: string[] = [
+        `// TODO: handle ${functionName} event here`,
+      ]
+
+      if (connectionsFromThis.length > 0) {
+        // Mỗi block con: một placeholder
+        //   <nextcode:childId1>
+        //   <nextcode:childId2>
+        bodyLines.push(
+          ...connectionsFromThis.map((conn) => `<nextcode:${conn.target}>`)
+        )
+      }
+      // Nếu không có block con thì KHÔNG push thêm gì → không có <nextcode:...>
+
+      const bodyJoined = bodyLines.join('\n    ')
+
+      // 3) Template cho chính block hiện tại
+      const cppSnippet = `
+void SampleApp::on${functionName}Changed(const velocitas::DataPointReply& reply) {
+    ${bodyJoined}
+}
+`.trimStart()
+
+      if (context.customExportStore) {
+        // Đọc toàn bộ code hiện có
+        const prevCode = context.customExportStore.get<string>('cppCode') || ''
+
+        // Placeholder mà block trước có thể đã chừa cho block hiện tại
+        // Ví dụ: block A tạo <nextcode:BLOCK_B_ID>, khi đến B thì ta replace chỗ đó.
+        const myPlaceholder = `<nextcode:${block.id}>`
+
+        let newCode: string
+
+        if (prevCode.includes(myPlaceholder)) {
+          // Có placeholder <nextcode:ID_block_hiện_tại> → chèn template vào đúng chỗ
+          newCode = prevCode.replace(myPlaceholder, cppSnippet)
+        } else {
+          // Không có placeholder cho block hiện tại → append xuống cuối file
+          newCode = prevCode ? `${prevCode}\n\n${cppSnippet}` : cppSnippet
+        }
+
+        context.customExportStore.set('cppCode', newCode)
+      } else {
+        logger.warn('customExportStore is not available on context for function block')
+      }
+    } catch (e) {
+      logger.error('Failed to build/append C++ snippet for function block', e)
     }
+
+    // ======================================================
+
 
     // return result.output
     // cũng có thể post-process output

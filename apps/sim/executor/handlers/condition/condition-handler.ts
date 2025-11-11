@@ -254,6 +254,83 @@ export class ConditionBlockHandler implements BlockHandler {
         }
       }) ?? []
 
+    // --- CPP TEMPLATE EXPORT (UPDATED) ---
+    if (context.customExportStore) {
+      try {
+        const branchesCode = conditions
+          .map((condition) => {
+            // Tìm tất cả connection từ nhánh này (sourceHandle = condition-<id>)
+            const branchConnections =
+              outgoingConnections?.filter(
+                (conn) => conn.sourceHandle === `condition-${condition.id}`
+              ) ?? []
+
+            // Chuẩn bị phần thân của từng nhánh
+            const bodyLines: string[] = [
+              `// TODO: handle ${condition.title || 'condition'} event here`,
+            ]
+
+            // Nếu CÓ block con nối ra nhánh này → thêm placeholder cho từng block con
+            // Nếu KHÔNG có block con → KHÔNG thêm <nextcode:...> nữa
+            if (branchConnections.length > 0) {
+              bodyLines.push(
+                ...branchConnections.map((conn) => `<nextcode:${conn.target}>`)
+              )
+            }
+
+            // Xác định loại nhánh: if / else if / else
+            const expr = (condition.value || '').trim() || '/* condition */'
+            const title = (condition.title || '').toLowerCase()
+
+            const bodyJoined = bodyLines.join('\n        ')
+
+            if (title === 'if') {
+              return `if (${expr}) {
+        ${bodyJoined}
+    }`
+            }
+
+            if (title === 'else if' || title === 'elseif') {
+              return `else if (${expr}) {
+        ${bodyJoined}
+    }`
+            }
+
+            // Mặc định: else
+            return `else {
+        ${bodyJoined}
+    }`
+          })
+          .join('\n')
+
+        const cppSnippet = `
+${branchesCode}
+`.trimStart()
+
+        const prevCode = context.customExportStore.get<string>('cppCode') || ''
+        const myPlaceholder = `<nextcode:${block.id}>`
+
+        let newCode: string
+        if (prevCode.includes(myPlaceholder)) {
+          // Có block trước đó đã chừa <nextcode:ID_CONDITION_BLOCK>
+          // → thay placeholder đó bằng template if/else này
+          newCode = prevCode.replace(myPlaceholder, cppSnippet)
+        } else if (prevCode) {
+          // Không có placeholder, append xuống cuối
+          newCode = `${prevCode}\n\n${cppSnippet}`
+        } else {
+          // Code còn rỗng → đây là block đầu tiên
+          newCode = cppSnippet
+        }
+
+        context.customExportStore.set('cppCode', newCode)
+      } catch (e) {
+        logger.warn('Failed to generate C++ snippet for condition block', e)
+      }
+    }
+
+
+
     // Return output, preserving source output structure if possible
     return {
       ...((sourceOutput as any) || {}), // Keep original fields if they exist

@@ -58,26 +58,26 @@ export function ExportControls({ disabled = false }: ExportControlsProps) {
 
       const baseName = currentWorkflow.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()
 
-      // File 1: workflow.json
-      const filename = `${baseName}.json`
-      downloadFile(jsonContent, filename, 'application/json')
-      logger.info('Workflow exported as JSON')
+      // // File 1: workflow.json
+      // const filename = `${baseName}.json`
+      // downloadFile(jsonContent, filename, 'application/json')
+      // logger.info('Workflow exported as JSON')
 
-      // 2) File 2: custom export data từ store
-      if (customExportData && Object.keys(customExportData).length > 0) {
-        const customContent = JSON.stringify(customExportData, null, 2)
-        const customFilename = `${baseName}-custom.json`
+      // // 2) File 2: custom export data từ store
+      // if (customExportData && Object.keys(customExportData).length > 0) {
+      //   const customContent = JSON.stringify(customExportData, null, 2)
+      //   const customFilename = `${baseName}-custom.json`
 
-        downloadFile(customContent, customFilename, 'application/json')
-        logger.info('Custom export data exported as JSON')
-      } else {
-        logger.info('No custom export data to export')
-      }
+      //   downloadFile(customContent, customFilename, 'application/json')
+      //   logger.info('Custom export data exported as JSON')
+      // } else {
+      //   logger.info('No custom export data to export')
+      // }
 
       // File 3: C++ code
       const cppCode = customExportData.cppCode
       if (cppCode && cppCode.trim().length > 0) {
-        const cppFilename = `${baseName}-generated.cpp`
+        const cppFilename = `${baseName}-generatedCPP.cpp`
         downloadFile(cppCode, cppFilename, 'text/plain')
         logger.info('Generated C++ code exported as .cpp')
       }
