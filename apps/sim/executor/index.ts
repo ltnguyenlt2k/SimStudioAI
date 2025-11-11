@@ -39,6 +39,7 @@ import type { SerializedBlock, SerializedWorkflow } from '@/serializer/types'
 import { useExecutionStore } from '@/stores/execution/store'
 import { useConsoleStore } from '@/stores/panel/console/store'
 import { useCustomExportStore } from '@/stores/custom/export/store'
+import { buildRootTemplate } from '../executor/handlers/templates/cpp_templates'
 
 
 const logger = createLogger('Executor')
@@ -739,7 +740,18 @@ export class Executor {
     startBlockId?: string
   ): ExecutionContext {
     // ====== NEW: data cho custom store ======
-    const customExportData: Record<string, any> = {}
+    const rawName =
+      (this.actualWorkflow as any).metadata?.name ||
+      (this.actualWorkflow as any).name ||
+      workflowId
+
+    const namespaceName = (rawName || 'example')
+      .replace(/\s+/g, '_')   // thay khoảng trắng bằng "_"
+      .replace(/[^a-zA-Z0-9_]/g, '') // bỏ ký tự lạ (vd. dấu gạch nối)
+
+    const customExportData: Record<string, any> = {
+      cppCode: buildRootTemplate(namespaceName),
+    }
 
     const context: ExecutionContext = {
       workflowId,

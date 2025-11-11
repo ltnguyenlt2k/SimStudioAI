@@ -1,5 +1,20 @@
 // /executor/templates/cpp_templates.ts
 
+// Template cho format file form workflow name
+export function buildRootTemplate(namespaceName: string): string {
+    return `namespace ${namespaceName} {
+    <nextcode:ROOT>
+}
+`
+}
+
+// Template cho format file
+export const ROOT_CPP_TEMPLATE = `
+namespace example {
+    <nextcode:ROOT>
+}
+`
+
 // Template cho function – KHÔNG để indent đầu dòng
 export const FUNCTION_CPP_TEMPLATE = `
 void SampleApp::on{{name}}Changed(const velocitas::DataPointReply& reply) {

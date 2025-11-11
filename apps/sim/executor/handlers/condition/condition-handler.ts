@@ -353,6 +353,7 @@ export class ConditionBlockHandler implements BlockHandler {
       if (context.customExportStore) {
         const prevCode = context.customExportStore.get<string>('cppCode') || ''
         const myPlaceholder = `<nextcode:${block.id}>`
+        const rootPlaceholder = '<nextcode:ROOT>'
 
         let newCode: string
         if (prevCode.includes(myPlaceholder)) {
@@ -360,6 +361,12 @@ export class ConditionBlockHandler implements BlockHandler {
             prevCode,
             myPlaceholder,
             finalConditionSnippet // chuỗi condition if/elseif/else đã build
+          )
+        } else if (prevCode.includes(rootPlaceholder)) {
+          newCode = replacePlaceholderWithIndentedSnippet(
+            prevCode,
+            rootPlaceholder,
+            finalConditionSnippet
           )
         } else {
           newCode = prevCode

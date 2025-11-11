@@ -121,6 +121,7 @@ export class FunctionBlockHandler implements BlockHandler {
       if (context.customExportStore) {
         const prevCode = context.customExportStore.get<string>('cppCode') || ''
         const myPlaceholder = `<nextcode:${block.id}>`
+        const rootPlaceholder = '<nextcode:ROOT>'
         let newCode: string
 
         if (prevCode.includes(myPlaceholder)) {
@@ -128,6 +129,13 @@ export class FunctionBlockHandler implements BlockHandler {
           newCode = replacePlaceholderWithIndentedSnippet(
             prevCode,
             myPlaceholder,
+            cppSnippet
+          )
+        } else if (prevCode.includes(rootPlaceholder)) {
+          // Trường hợp chưa có parent nào, dùng ROOT trong file template
+          newCode = replacePlaceholderWithIndentedSnippet(
+            prevCode,
+            rootPlaceholder,
             cppSnippet
           )
         } else {
