@@ -39,7 +39,7 @@ import type { SerializedBlock, SerializedWorkflow } from '@/serializer/types'
 import { useExecutionStore } from '@/stores/execution/store'
 import { useConsoleStore } from '@/stores/panel/console/store'
 import { useCustomExportStore } from '@/stores/custom/export/store'
-import { buildRootTemplate } from '../executor/handlers/templates/cpp_templates'
+import { BASE_APP_CPP_TEMPLATE } from '../executor/handlers/templates/cpp_templates'
 
 
 const logger = createLogger('Executor')
@@ -749,8 +749,10 @@ export class Executor {
       .replace(/\s+/g, '_')   // thay khoảng trắng bằng "_"
       .replace(/[^a-zA-Z0-9_]/g, '') // bỏ ký tự lạ (vd. dấu gạch nối)
 
+    const baseCpp = BASE_APP_CPP_TEMPLATE
+
     const customExportData: Record<string, any> = {
-      cppCode: buildRootTemplate(namespaceName),
+      cppCode: baseCpp,
     }
 
     const context: ExecutionContext = {

@@ -1,12 +1,49 @@
 // /executor/templates/cpp_templates.ts
 
-// Template cho format file form workflow name
-export function buildRootTemplate(namespaceName: string): string {
-    return `namespace ${namespaceName} {
-    <nextcode:ROOT>
+// --- Các placeholder chuẩn trong file C++ gốc ---
+export const PLACEHOLDERS = {
+    INCLUDE: '{{include}}',
+    DECLARE: '{{declare}}',
+    FUNCTION: '{{function}}',
+    ROOT: '<nextcode:ROOT>', // nếu bạn còn dùng kiểu lồng <nextcode:...>
+};
+
+// --- File C++ gốc (bạn có thể tách riêng ra file .txt cũng được) ---
+export const BASE_APP_CPP_TEMPLATE = `/**
+ * Copyright ...
+ */
+
+#include "SampleApp.h"
+#include "sdk/IPubSubClient.h"
+#include "sdk/Logger.h"
+#include "sdk/QueryBuilder.h"
+#include "sdk/vdb/IVehicleDataBrokerClient.h"
+
+${PLACEHOLDERS.INCLUDE}
+
+namespace {{NAMESPACE}} {
+
+${PLACEHOLDERS.DECLARE}
+
+SampleApp::SampleApp()
+    : VehicleApp(velocitas::IVehicleDataBrokerClient::createInstance("vehicledatabroker"),
+                 velocitas::IPubSubClient::createInstance("SampleApp")) {}
+
+void SampleApp::onStart() {
+    subscribeDataPoints(velocitas::QueryBuilder::select(Vehicle.Speed).build())
+        ->onItem([this](auto&& item) { onSpeedChanged(std::forward<decltype(item)>(item)); })
+        ->onError([this](auto&& status) { onError(std::forward<decltype(status)>(status)); });
+
+    subscribeToTopic(GET_SPEED_REQUEST_TOPIC)
+        ->onItem(
+            [this](auto&& data) { onGetSpeedRequestReceived(std::forward<decltype(data)>(data)); })
+        ->onError([this](auto&& status) { onError(std::forward<decltype(status)>(status)); });
 }
+
+${PLACEHOLDERS.FUNCTION}
+
+} // namespace {{NAMESPACE}}
 `
-}
 
 // Template cho format file
 export const ROOT_CPP_TEMPLATE = `
@@ -44,6 +81,36 @@ else {
     {{next}}
 }
 `.trim();
+
+// --- Helper: chèn snippet vào chỗ placeholder, giữ indent & giữ lại placeholder cho lần sau ---
+export function insertSnippetAtPlaceholderKeepToken(
+    source: string,
+    token: string,
+    snippet: string
+): string {
+    const idx = source.indexOf(token);
+    if (idx === -1) return source; // không có token thì trả nguyên
+    // Tìm indent của dòng chứa token
+    const lineStart = source.lastIndexOf('\n', idx) + 1;
+    const lineEnd = source.indexOf('\n', idx);
+    const tokenLine = source.slice(lineStart, lineEnd === -1 ? source.length : lineEnd);
+    const indentMatch = tokenLine.match(/^(\s*)/);
+    const indent = indentMatch ? indentMatch[1] : '';
+
+    // Indent snippet theo indent của dòng placeholder
+    const indentedSnippet = snippet
+        .split('\n')
+        .map((l) => (l.length ? indent + l : l))
+        .join('\n');
+
+    // Chèn: [trước token] + snippet + \n + indent + token + [sau token]
+    // (giữ lại token để các function sau tiếp tục “nhét” đúng chỗ)
+    const before = source.slice(0, lineStart);
+    const after = source.slice(lineStart);
+    // thay MỘT lần duy nhất
+    const replacedOnce = after.replace(token, `${indentedSnippet}\n${indent}${token}`);
+    return before + replacedOnce;
+}
 
 /**
  * Thêm indent theo dòng chứa placeholder và thay thế luôn cả dòng đó.

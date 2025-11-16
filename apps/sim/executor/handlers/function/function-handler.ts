@@ -9,6 +9,8 @@ import { executeTool } from '@/tools'
 // 👇 IMPORT TEMPLATE
 import {
   FUNCTION_CPP_TEMPLATE,
+  PLACEHOLDERS,
+  insertSnippetAtPlaceholderKeepToken,
   replacePlaceholderWithIndentedSnippet,
 } from '../templates/cpp_templates'
 
@@ -101,46 +103,63 @@ export class FunctionBlockHandler implements BlockHandler {
       const connectionsFromThis =
         context.workflow?.connections.filter((c) => c.source === block.id) ?? []
 
-      let childrenPlaceholders = ''
+      const childrenPlaceholders =
+        connectionsFromThis.length > 0
+          ? connectionsFromThis.map((conn) => `<nextcode:${conn.target}>`).join('\n    ')
+          : ''
 
-      if (connectionsFromThis.length > 0) {
-        // mỗi block con 1 placeholder
-        childrenPlaceholders = connectionsFromThis
-          .map((conn) => `<nextcode:${conn.target}>`)
-          .join('\n    ')
-      } else {
-        // không có block con → không chừa placeholder nextcode nữa
-        childrenPlaceholders = ''
-      }
-
-      // 2) render template
+      // 2) Render snippet function
       const cppSnippet = FUNCTION_CPP_TEMPLATE
         .replace(/{{name}}/g, functionName)
-        .replace('{{next}}', childrenPlaceholders || '')
+        .replace('{{next}}', childrenPlaceholders)
 
       if (context.customExportStore) {
         const prevCode = context.customExportStore.get<string>('cppCode') || ''
-        const myPlaceholder = `<nextcode:${block.id}>`
-        const rootPlaceholder = '<nextcode:ROOT>'
-        let newCode: string
 
-        if (prevCode.includes(myPlaceholder)) {
-          // chèn vào đúng vị trí placeholder + căn indent đẹp
-          newCode = replacePlaceholderWithIndentedSnippet(
-            prevCode,
-            myPlaceholder,
-            cppSnippet
-          )
-        } else if (prevCode.includes(rootPlaceholder)) {
-          // Trường hợp chưa có parent nào, dùng ROOT trong file template
-          newCode = replacePlaceholderWithIndentedSnippet(
-            prevCode,
-            rootPlaceholder,
-            cppSnippet
-          )
+        // 3) Xác định block này có phải "root function" không
+        //   = không có cha nào, hoặc chỉ có cha là block manual
+        const incomingConns =
+          context.workflow?.connections.filter((c) => c.target === block.id) ?? []
+
+        const nonManualParents = incomingConns.filter((conn) => {
+          const parent = context.workflow?.blocks.find((b) => b.id === conn.source)
+          if (!parent) return false
+          const type = parent.metadata?.id
+          // tuỳ bạn, nếu kiểu block manual của bạn có id khác
+          return type !== 'manual' && type !== 'manual_trigger'
+        })
+
+        const isRootFunction = nonManualParents.length === 0
+
+        let newCode = prevCode
+
+        if (!isRootFunction) {
+          // 4A) Có cha (không phải manual) → chèn vào placeholder <nextcode:thisId>
+          const myPlaceholder = `<nextcode:${block.id}>`
+
+          if (prevCode.includes(myPlaceholder)) {
+            newCode = replacePlaceholderWithIndentedSnippet(
+              prevCode,
+              myPlaceholder,
+              cppSnippet
+            )
+          } else {
+            // fallback: không tìm thấy placeholder → append cuối file
+            newCode = prevCode ? `${prevCode}\n\n${cppSnippet}` : cppSnippet
+          }
         } else {
-          // không có placeholder cho block này → append cuối file
-          newCode = prevCode ? `${prevCode}\n\n${cppSnippet.trim()}` : cppSnippet.trim()
+          // 4B) Root function (chỉ manual hoặc không có cha)
+          //     → chèn vào chỗ {{Add thêm function}} trong file template gốc
+          if (prevCode.includes(PLACEHOLDERS.FUNCTION)) {
+            newCode = insertSnippetAtPlaceholderKeepToken(
+              prevCode,
+              PLACEHOLDERS.FUNCTION,
+              cppSnippet
+            )
+          } else {
+            // Không còn placeholder FUNCTION → append cuối file
+            newCode = prevCode ? `${prevCode}\n\n${cppSnippet}` : cppSnippet
+          }
         }
 
         context.customExportStore.set('cppCode', newCode)
@@ -151,6 +170,7 @@ export class FunctionBlockHandler implements BlockHandler {
       logger.error('Failed to build/append C++ snippet for function block', e)
     }
     // ======================================================
+
 
 
 
